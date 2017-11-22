@@ -1,0 +1,71 @@
+<!doctype html>
+<html>
+<div class="container">
+	<nav style="position: fixed; width: 200px; height: 100%;">
+	    <ul>
+<li><a href="../welcome">welcome</a></li>
+<li><a href="../css-testing">css testing</a></li>
+<li><a href="../code-club">code club</a></li>
+<li><a href="../DDD-East-Anglia-29th-June-2013">DDD East Anglia 29th June 2013</a></li>
+<li><a href="../Write-Your-Tests-In-Another-Language">Write Your Tests In Another Language</a></li>
+<li><a href="../Huddle-Hackathon-The-Hack-Trick">Huddle Hackathon The Hack Trick</a></li>
+<li><a href="../Hack-to-the-Future">Hack to the Future</a></li>
+<li><a href="../What-to-Hack">What to Hack</a></li>
+<li><a href="../All-about-security">All about security</a></li>
+<li><a href="../Composite-specifications">Composite specifications</a></li>
+<li><a href="../Specifications-dsl">Specifications dsl</a></li>
+<li><a href="../Specification-visitor">Specification visitor</a></li>
+<li><a href="../Meet-the-hackers">Meet the hackers</a></li>
+<li><a href="../Cardboard-houses">Cardboard houses</a></li>
+<li><a href="../SPA-feature-switch">SPA feature switch</a></li>
+<li><a href="../Auto-VRT">Auto VRT</a></li>
+</ul>
+	</nav>
+	<article style="padding-left: 220px">
+	    <hr>
+<h2>title: CSS Regression Testing
+date_created: 16th of April 2013
+author_name: James Cryer
+description: CSS3 is the ignition and responsive design will become the driving force of developments in visual and CSS testing. PhantomCSS is one of many new tools to support this paradigm shift in UI testing.</h2>
+<h2>tl;dr</h2>
+<p>CSS3 is the ignition and responsive design will become the driving force of developments in visual and CSS testing. <a href="https://github.com/Huddle/PhantomCSS">PhantomCSS</a> is one of many new tools to support this paradigm shift in UI testing.</p>
+<h2>Why?</h2>
+<p>We are already testing visuals, with or without style guides. Manual testing is a time consuming process, and sure it has to be done once, but done repeatedly? With a rich design interface, a responsive layout or complex app, the risk of regression and the cost of manual testing is higher. No one wants to have to re-test a page in every view port size just because some padding has changed.</p>
+<p>The CSS code of long life projects can easily become disorganised and bloat in size simply because of how hard it is to change CSS without breaking styling. Malleability of CSS, the capability to change, remove and add styles is extraordinarily important.  Refactoring CSS is clumsy with only manual testing for support; automated CSS testing can help make refactoring painless.</p>
+<p>CSS regression can often be difficult to identify, sometimes due to design apathy but mostly because the breakages can appear in areas not in active development. Automated CSS testing makes regression detection faster and easier.</p>
+<p>There is a common misconception that using XPath or a CSS selector to assert that an element exists is sufficient for testing styles. Just because @.red-button@ exists doesn’t mean it is visible, nor does it mean that the button is red. The style <code>button {background:blue !important}</code> could easily have broken this. Equally <code>selenium.isVisible(&quot;*[contains(@class,&quot;red-button&quot;)]&quot;)</code> doesn’t prove that the element is visible or looks correct; it proves that the element doesn’t have a <code>display:none</code> style, but doesn’t consider z-index or positioning. Testing styles is more than just making assertions against HTML mark-up.</p>
+<h2>How?</h2>
+<p>There are two ways of testing CSS within an automated process. The first involves screenshot comparisons; the second requires the assertion of computed styles with JavaScript using <code>window.getComputedStyle()</code>. There are obviously pros and cons to both approaches. The latter technique couples the test more closely with the implementation and thus potentially making the test more brittle. The former couples the test more closely to the design which is problematic when there is mutable content (like copy that regularly changes).</p>
+<p>I personally think that screenshot comparisons are the way to go; it tests what the user sees not an abstraction of what the user sees. There are two ways to get around the content mutability problem. The first is not to test the page itself, but instead a static version of it, same CSS, same markup but flat content. Depending on how content is delivered this can be achieved by setting up the database per test run, mocking API responses from the JavaScript client or creating a branch of your CMS containing only fixed data. If you’re lucky enough to have a live style guide (i.e. a guide written in HTML that actually uses production CSS code) then there is also a strong argument that you could just test only that.</p>
+<h2>Introducing PhantomCSS</h2>
+<p><a href="https://github.com/Huddle/PhantomCSS">PhantomCSS</a> is a command-line tool that I developed which takes the screenshot comparison approach to testing CSS. We use it at Huddle to supplement our functional test suite which runs on [<a href="https://github.com/ariya/phantomjs">PhantomJS</a> with <a href="https://github.com/n1k0/casperjs">CasperJS</a>. We don’t have to worry about changing content because we test the UI in isolation, all data is communicated via Ajax with the server so our tests simply mock those Ajax requests. Having complete control of the UI from our functional tests makes it is easy for us to drop in visual tests.</p>
+<p>Here is a code example adapted from the demo testsuite on PhantomCSS:</p>
+<pre><code>casper.
+  start(&quot;https://my.testpage.com&quot;).
+  then( function should_look_like_this(){
+    phantomCSS.screenshot('.my-css-selector');
+  }).
+  then( function user_clicks_link(){
+    casper.page.sendEvent('click', 10, 10);
+  }).
+  then( function should_look_different_than_before(){
+    phantomCSS.screenshot('.my-css-selector');
+  }).
+  then( function now_check_the_screenshots(){
+    phantomCSS.compareAll();
+  });
+</code></pre>
+<p>This code is testing a visual change caused by a click event.  It generates a screenshot of a portion of the page, defined using the CSS selector ‘.my-css-selector’.  Every time this test suite is run it will generate a new screenshot and compare it to the original.  Normally there won’t be a difference, but if there is, PhantomCSS will generate a ‘diff’ image and report back.  The image below shows the three screenshots of a failed test.</p>
+<img src="img/2013-03-05-css-testing/phantomcss-example-image.png"/>
+<p>The failed image shows the differences that occurred because of a decrease in font size, the vertical position of the ‘Click me’ link was also affected. Differences are depicted in pink.</p>
+<p>We discovered several problems with screenshot testing that PhantomCSS tries to address. A distributed team of developers running visual tests and creating new baseline screenshots on different machines will see comparison failures caused by antialiasing, native form field styling (like select box styling) and CSS animations and transitions. These failures are caused by differences in the operating system and the speed of the machine.  PhantomCSS uses an image comparison algorithm to detect and ignore antialiasing, and provides the option to turn off animations and hide problematic elements.</p>
+<h2>You might also want to know about</h2>
+<p>PhantomCSS is not the only library for visual and CSS regression testing.  I would highly recommend you take a look at these projects as well.</p>
+<p><a href="https://github.com/thingsinjars/ghoststory">GhostStory</a>, <a href="https://github.com/winston/cactus">Cactus</a>, <a href="https://github.com/bfirsh/needle">Needle</a>, <a href="https://github.com/cburgmer/csscritic">CSSCritic</a>, <a href="https://code.google.com/p/fighting-layout-bugs/">fighting-layout-bugs</a>, <a href="http://www.sikuli.org/">sikuli</a>, <a href="http://mogotest.com/">Mogo</a>.</p>
+<h2>The future?</h2>
+<p>Much like the growth of JavaScript testing 6 years ago, seeded by Ajax and matured by the development of thick JS clients and single page apps, I think we’ve reached a point in web design where we can no longer afford to not have rich design interfaces under test. UI development will increasingly need the support of automated visual testing.  Web technologies are progressing so fast now, the tools for creating rich design interfaces are increasing and I’m pretty sure that the tools for testing this new Web will increase and evolve as well.  And we’ve barely scraped the surface; how will we test CSS3 keyframe animations, Canvas, WebGL?  I think we’re seeing the start of a new Web UI revolution, and this must be followed by a revolution in Web UI testing.</p>
+
+	</article>
+</div>
+</body>
+</html>

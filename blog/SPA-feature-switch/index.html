@@ -1,0 +1,56 @@
+<!doctype html>
+<html>
+<div class="container">
+	<nav style="position: fixed; width: 200px; height: 100%;">
+	    <ul>
+<li><a href="../welcome">welcome</a></li>
+<li><a href="../css-testing">css testing</a></li>
+<li><a href="../code-club">code club</a></li>
+<li><a href="../DDD-East-Anglia-29th-June-2013">DDD East Anglia 29th June 2013</a></li>
+<li><a href="../Write-Your-Tests-In-Another-Language">Write Your Tests In Another Language</a></li>
+<li><a href="../Huddle-Hackathon-The-Hack-Trick">Huddle Hackathon The Hack Trick</a></li>
+<li><a href="../Hack-to-the-Future">Hack to the Future</a></li>
+<li><a href="../What-to-Hack">What to Hack</a></li>
+<li><a href="../All-about-security">All about security</a></li>
+<li><a href="../Composite-specifications">Composite specifications</a></li>
+<li><a href="../Specifications-dsl">Specifications dsl</a></li>
+<li><a href="../Specification-visitor">Specification visitor</a></li>
+<li><a href="../Meet-the-hackers">Meet the hackers</a></li>
+<li><a href="../Cardboard-houses">Cardboard houses</a></li>
+<li><a href="../SPA-feature-switch">SPA feature switch</a></li>
+<li><a href="../Auto-VRT">Auto VRT</a></li>
+</ul>
+	</nav>
+	<article style="padding-left: 220px">
+	    <hr>
+<h2>title: Using sessionStorage for SPA feature switching
+date_created: 20th of January, 2016
+author_name: James Cryer</h2>
+<h2>tl;dr</h2>
+<p>Release and integrate code often to de-risk front-end SPA development.  Hide unfinished features with sessionStorage.</p>
+<h2>Why?</h2>
+<p>During development of a new feature it is important to <a href="https://www.thoughtworks.com/continuous-integration">continuously integrate</a> and <a href="https://en.wikipedia.org/wiki/Release_early,_release_often">release early and often</a> so that developers and quality assurance engineers are given a faster feedback loop on bugs and technology blockers.  Features may take weeks or months before release; waiting until the end of development to integrate code with a continuously evolving system creates excessive risk toward the end of the project that may jeopardise delivery. <a href="http://martinfowler.com/bliki/FeatureToggle.html">Feature switching</a> solves the problem of having unfinished features integrated on the master branch, by providing a mechanism to enable and disable that feature for manual and automated testing.</p>
+<p>Feature switching UI features through environment or backend configuration can lead to fairly invasive code changes; creating touchpoints in multiple system layers and build configurations that create regression risk when implemented or removed. Back-to-front feature switching also creates a dependency between backend services and front-end code which might restrict autonomous release-ability of SPAs (single page applications) and back-end services. SPA only feature switches using sessionStorage will restrict code touch-points to the front-end, and will not affect the release cycle of the SPA.</p>
+<h2>How?</h2>
+<p><a href="https://developer.mozilla.org/en/docs/Web/API/Window/sessionStorage">SessionStorage</a> provides methods for getting and setting arbitrary strings which will persist over page reloads but will not persist after the browser window is closed. SessionStorage data will not be shared across multiple browser tabs which differs from the behaviour of localStorage which provides persistence across sessions and tabs. LocalStorage can also be used for feature switching, though the potential to forget that a feature is on for that developer or QA engineer may lead to a false sense of security; e.g. regressions caused by the side-effects of technology choices might not be apparent if the feature is switched on. Having a feature on in one tab and off in another is also useful during manual testing. <a href="http://caniuse.com/#search=sessionstorage">SessionStorage works in IE8 and above</a>.</p>
+<p>Word of warning: Just because the feature is switched off for your users doesn’t mean it is safe from a security, quality or performance point of view, your usual QA process must be adhered to during integration.</p>
+<p>The example below uses sessionStorage to get the value of an arbitrary key representing the on/off state of a feature.</p>
+<pre class="prettyprint lang-js linenums">
+if(sessionStorage.getItem("app.featureswitch.searchresults") === "on"){
+	router.add("search/:id/results", showSearchResults);
+}
+</pre>
+<p>To enable this feature the developer, QA engineer or test automation script simply runs the following in the browser’s console.</p>
+<pre class="prettyprint lang-js linenums">
+sessionStorage.setItem("app.featureswitch.searchresults", "on");
+</pre>
+<p>Or as a bookmarklet.</p>
+<pre class="prettyprint lang-js linenums">
+Javascript:sessionStorage.setItem("app.featureswitch.searchresults", "on");
+</pre>
+<p>This incredibly simple way of switching SPA features on and off for initial development ensures that technology choices are de-risked early, feature bugs are discovered sooner, and merge and integration conflicts are less severe and happen less often.</p>
+
+	</article>
+</div>
+</body>
+</html>

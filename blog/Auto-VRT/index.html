@@ -1,0 +1,75 @@
+<!doctype html>
+<html>
+<div class="container">
+	<nav style="position: fixed; width: 200px; height: 100%;">
+	    <ul>
+<li><a href="../welcome">welcome</a></li>
+<li><a href="../css-testing">css testing</a></li>
+<li><a href="../code-club">code club</a></li>
+<li><a href="../DDD-East-Anglia-29th-June-2013">DDD East Anglia 29th June 2013</a></li>
+<li><a href="../Write-Your-Tests-In-Another-Language">Write Your Tests In Another Language</a></li>
+<li><a href="../Huddle-Hackathon-The-Hack-Trick">Huddle Hackathon The Hack Trick</a></li>
+<li><a href="../Hack-to-the-Future">Hack to the Future</a></li>
+<li><a href="../What-to-Hack">What to Hack</a></li>
+<li><a href="../All-about-security">All about security</a></li>
+<li><a href="../Composite-specifications">Composite specifications</a></li>
+<li><a href="../Specifications-dsl">Specifications dsl</a></li>
+<li><a href="../Specification-visitor">Specification visitor</a></li>
+<li><a href="../Meet-the-hackers">Meet the hackers</a></li>
+<li><a href="../Cardboard-houses">Cardboard houses</a></li>
+<li><a href="../SPA-feature-switch">SPA feature switch</a></li>
+<li><a href="../Auto-VRT">Auto VRT</a></li>
+</ul>
+	</nav>
+	<article style="padding-left: 220px">
+	    <hr>
+<p>title: Web Components with auto-generated visual tests and living docs
+date_created: 28th of September, 2016
+author_name: James Cryer</p>
+<hr>
+<h2>tl;dr</h2>
+<p>Auto-generated Visual Regression Testing? “Living” documentation? How Huddle’s front-end team use YAML to describe all possible states of UI components, from which they generate <a href="https://www.smashingmagazine.com/2015/04/an-in-depth-overview-of-living-style-guide-tools/">living component library documentation</a> and <a href="https://css-tricks.com/visual-regression-testing-with-phantomcss/">Visual Regression Tests</a> using <a href="https://github.com/Huddle/PhantomFlow">PhantomFlow</a> and a little magic.</p>
+<h2>What?</h2>
+<p>Components are supported by most modern JS libraries and frameworks, available with <a href="https://elements.polymer-project.org/browse">Polymer</a>, <a href="https://facebook.github.io/react/docs/reusable-components.html">React</a>, <a href="https://docs.angularjs.org/guide/component">Angular</a>, or in Huddle’s case <a href="http://knockoutjs.com/documentation/component-overview.html">Knockout</a>. It shows a clear convergence of ideas in our industry, driven by the <a href="https://developer.mozilla.org/en-US/docs/Web/Web_Components">Web Component</a> standards; towards better encapsulation of HTML, JS and CSS, a long awaited realisation that <a href="https://en.wikipedia.org/wiki/Separation_of_concerns">Separation of Concerns</a> doesn’t mean separation of technologies.</p>
+<p>Better encapsulation means drop-in implementation, and zero coupling to parent components and <a href="https://en.wikipedia.org/wiki/Single-page_application">SPA</a>s.  A component is the same, whether in a dynamic production application or in static component library documentation.  Using tools like <a href="https://webpack.github.io/">Webpack</a> or <a href="http://rollupjs.org/">Rollup</a> a fully encapsulated component can be versioned, deployed and referenced independently without the need for a full application build.  True SPA composition is here, at last – phew!</p>
+<p>Better encapsulation also lends itself to explicit parameterization. With careful design this API can allow us to exercise most if not all code paths inside a component.  Useful for standard unit testing, but of course these are UI components; useful for Visual Regression Testing (VRT for short).</p>
+<h2>Show me the magic!</h2>
+<p>When front-end developers create new components, as well as a JS and CSS file, they also create a <a href="http://yaml.org/">YAML</a> file that describes the component, it’s inputs and possible implementations.</p>
+<pre class="prettyprint lang-yaml linenums">
+description: Huddle graphic checkbox
+
+inputs:
+  label: Checkbox
+  disable:
+    - false
+    - true
+  checked:
+    - false
+    - true
+
+implementations:
+  knockout: |
+    &lt;checkbox params="
+      checked: {{checked}},
+      label: '{{label}}',
+      disable : {{disable}}"&gt;&lt;/checkbox&gt;
+</pre>
+<p>Build scripts then generate a HTML page with all possible state variations of the component. The HTML page can be view locally during development and also deployed to a gh-pages branch in the same repo, allowing everyone in the team to view existing UI components. Below is a screenshot from this simple HTML page, generated from the above YAML.</p>
+<img src="../img/2016-09-28-autovrt/checkbox.png" class="paddedimage" alt="Screenshot of Huddle component documentation showing a checkbox control in four different states: on/off, disabled and enabled.">
+<p>A visual (VRT) baseline is created for each component variation.  The tests are then run locally on the command line or within CI.</p>
+<p>The diagram below shows how this all fits together.</p>
+<img src="../img/2016-09-28-autovrt/autovrt.png" class="paddedimage" alt="">
+<h2>Does this “Auto-VRT” actually work?</h2>
+<p>Auto-generated component variation testing with VRT is an excellent combination of ideas that provides cheap test coverage (~55% coverage), but it’s just another tool in the box. Manually written functional tests are still important to ensure correct integration. As a side-effect of having component level VRT, less reliance is needed on application level VRT.</p>
+<p>Like standard VRT, it will show you that something has changed, but it can’t tell you what changed (anecdotally I have never found this a problem), but with small encapsulated components, the surface area of change is much smaller and therefore easy to diagnose and amend.</p>
+<h2>And the living documentation?</h2>
+<p>The documentation is the source of truth, it changes and breaks with the code. Not having to maintain UI documentation ensures that it is both relevant and useful, for everyone in the team. It helps communicate the status quo of visual language and interaction design, and improves UI consistency by creating the conversation of reuse vs new approach. Documenting auto-generated variations of components surfaces UI states that are easy to forget about or not immediately apparent. Documenting how components behave in every scenario is important for communicating a complete and holistic design system.</p>
+<h2>So it’s good then?</h2>
+<p>A centralised component library is an effective way to maintain or improve UI/UX consistency across any front-end code base.  Not having to write component level tests or manually document those components has helped Huddle’s front-end team be more productive and less afraid to refactor. It has proven over the last year to be both scalable and dependable, and has reinforced the idea that web components really are the future of front-end UI development.</p>
+<h2>BTW, Huddle is hiring ;)</h2>
+<p>If any of this interests you, and you’d like to work in a truly skilled and innovative team, <a href="https://talentcommunity.huddle.com/careers">come join us!</a></p>
+
+	</article>
+</div>
+</body>
+</html>

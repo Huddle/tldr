@@ -1,0 +1,195 @@
+<!doctype html>
+<html>
+<div class="container">
+	<nav style="position: fixed; width: 200px; height: 100%;">
+	    <ul>
+<li><a href="../welcome">welcome</a></li>
+<li><a href="../css-testing">css testing</a></li>
+<li><a href="../code-club">code club</a></li>
+<li><a href="../DDD-East-Anglia-29th-June-2013">DDD East Anglia 29th June 2013</a></li>
+<li><a href="../Write-Your-Tests-In-Another-Language">Write Your Tests In Another Language</a></li>
+<li><a href="../Huddle-Hackathon-The-Hack-Trick">Huddle Hackathon The Hack Trick</a></li>
+<li><a href="../Hack-to-the-Future">Hack to the Future</a></li>
+<li><a href="../What-to-Hack">What to Hack</a></li>
+<li><a href="../All-about-security">All about security</a></li>
+<li><a href="../Composite-specifications">Composite specifications</a></li>
+<li><a href="../Specifications-dsl">Specifications dsl</a></li>
+<li><a href="../Specification-visitor">Specification visitor</a></li>
+<li><a href="../Meet-the-hackers">Meet the hackers</a></li>
+<li><a href="../Cardboard-houses">Cardboard houses</a></li>
+<li><a href="../SPA-feature-switch">SPA feature switch</a></li>
+<li><a href="../Auto-VRT">Auto VRT</a></li>
+</ul>
+	</nav>
+	<article style="padding-left: 220px">
+	    <hr>
+<h2>title: Write your tests in another language!
+date_created: 7th of January 2014
+author_name: Benjamin Hodgson
+description: On using Python to test a .NET server</h2>
+<h2>tl;dr</h2>
+<p>For acceptance testing, you should consider using a scripting language.
+I recommend using <a href="http://python.org/">Python</a> with <a href="https://github.com/benjamin-hodgson/Contexts">Contexts</a>,
+but I suppose I’m biased.</p>
+<h2>Unit testing with MSpec</h2>
+<p>Here at Huddle, most of our code-base is written in C#. For unit testing,
+we use <a href="https://github.com/machine/machine.specifications"><em>Machine.Specifications</em></a> (or <em>MSpec</em> for short).
+MSpec works some C# magic to help you write tests that read like sentences. Here’s an example of a unit test for
+our awesome new zip-and-download feature.</p>
+<pre class="prettyprint lang-csharp">
+[Subject(typeof(BulkDownloadCommandHandler))]
+class When_bulk_downloading_a_non_existent_document
+{
+  const int ExistentDocumentId = 249587;
+  const int NonexistentDocumentId = 4592;
+  static Exception _exception;
+
+  Establish that_the_cmd_contains_a_non_existent_doc_id = () =>
+  {
+    _command = new BulkDownloadCommand {
+      FolderId = _folder.ID,
+      DocumentIdsToProcess = new[] { ExistentDocumentId, NonexistentDocumentId },
+      Id = _bulkDownloadId
+    };
+
+    SetupNonExistentDocument()
+
+    _handler = new BulkDownloadCommandHandler(
+      _documentRepo.Object,
+      _folderRepo.Object,
+      _asyncCommandRepo.Object,
+      _uowManager,
+      _redisClientFactory.Object,
+      _configManager.Object,
+      new NullLogger()
+    );
+  };
+
+    Because we_handle_the_command = () => _exception = Catch.Exception(() => _handler.Handle(_command));
+
+    It should_throw_an_object_not_found_exception = () => _exception.ShouldBeOfType&lt;ObjectNotFoundException&lt;Document&gt;&gt;();
+    It should_not_write_an_async_command = () => _asyncCommandRepo.Verify(r => r.Add(Moq.It.IsAny&lt;AsynchronousCommand&gt;()), Times.Never());
+    It should_not_put_the_command_in_redis = () => _redisClient.Verify(c => c.Set(Moq.It.IsAny&lt;string&gt;(), Moq.It.IsAny&lt;BulkDownloadCommand&gt;()), Times.Never());
+}
+</pre>
+<p>(I’ve snipped some of the less interesting code.) The whole class is a single test case.
+<code>Establish</code>, <code>Because</code> and <code>It</code> are MSpec’s keywords: <code>Establish</code> sets up the system under test, <code>Because</code> performs
+the action you’re testing, and the <code>It</code>s are the assertions.</p>
+<p>The syntax doesn’t look much like C#, but you end up being able to read the names of the methods like a sentence.
+You don’t have to work hard to figure out what the test is all about.
+If you’re trying to write a test that isn’t readily described by this three-point sentence format,
+you may be testing the wrong thing.</p>
+<h2>Why not use C# for API tests too?</h2>
+<p>Building a good suite of acceptance tests is almost like building a whole new application.
+Surrounding the tests is a constellation of other classes and functions: networking,
+<a href="http://codebetter.com/iancooper/2008/10/17/testdatabuilders/">test data builders</a>, configuration, and so on.
+As with any application, it’s important to choose your tools carefully.</p>
+<p>C#'s safe, expressive type system makes it great for server-side logic.
+But I’ve found that these same qualities can actually become a hindrance when you’re writing
+a REST API client such as a test suite. This is because of the fundamental difference between
+client-side and server-side programming: the client does not control the shape
+of the data that it’s dealing with.</p>
+<p>For example, .NET’s <a href="http://msdn.microsoft.com/en-us/library/system.web.script.serialization.javascriptserializer.aspx">JavaScriptSerialiser</a>
+converts .NET objects to and from JSON.
+This means your tests will have to use the same <a href="http://en.wikipedia.org/wiki/Data_transfer_object">DTOs</a>
+as the implementation code, so they’re not black-box tests any more. The alternative is duplicating the code.
+Of course, if you’re testing in a different language, accidentally reusing code like that is not an option - you’re
+forced to take an outside-in approach.</p>
+<p>If you decide not to deserialise your JSON into objects, and just use dictionaries or <code>dynamic</code>s, I’ve found that
+C#'s verbosity gets in the way. When you don’t <em>need</em> a statically typed language,
+the type signatures all over the code can be annoying.
+Here’s how you create a list of dictionaries (a very common JSON structure) in C#:</p>
+<pre class="prettyprint lang-csharp">
+List&lt;Dictionary&lt;string, string&gt;&gt; company_members = new List&lt;Dictionary&lt;string, string&gt;&gt;
+  {
+    new Dictionary&lt;string, string&gt;
+      {
+        {"FirstName", "Benjamin"},
+        {"LastName", "Hodgson"},
+        {"Role", "Graduate"},
+        {"EmailAddress", "ben@acme.com"}
+      },
+    new Dictionary&lt;string, string&gt;
+      {
+        {"FirstName", "Jon"},
+        {"LastName", "Finerty"},
+        {"Role", "Developer"},
+        {"EmailAddress", "jon@acme.com"}
+      }
+  }
+</pre>
+<p>What a lot of curly braces! The visual noise in the code balloons when the structure gets more complicated.
+I’ve seen tests which resort to hand-writing JSON with string-interpolation to avoid having to
+write code as verbose as this!
+Here’s an equivalent structure in Python, which is much more concise:</p>
+<pre class="prettyprint lang-python">
+company_members = [
+    {'FirstName': 'Benjamin',
+     'LastName': 'Hodgson',
+     'Role': 'Graduate',
+     'EmailAddress': 'ben@acme.com'},
+    {'FirstName': 'Jon',
+     'LastName': 'Finerty',
+     'Role': 'Developer',
+     'EmailAddress': 'jon@acme.com'}
+]
+</pre>
+<p>So, we decided to start writing API tests using a scripting language.
+Dynamic languages come into their own in client-side logic.
+We considered JavaScript, but we ended up choosing Python, partly because the developers wanted
+to try something new, but largely because of the side-project I’d been working on for a couple of weeks.</p>
+<h2>Introducing Contexts</h2>
+<p>Meanwhile, I was becoming frustrated that the Python ecosystem doesn’t offer a tool like MSpec.
+I wanted to be able to do ‘behaviour-driven development’, but in a lighter-weight manner than tools like
+<a href="http://lettuce.it/"><em>Lettuce</em></a> require. Lettuce and its ilk (such as <a href="http://cukes.info/"><em>Cucumber</em></a>
+and <a href="http://fitnesse.org/"><em>Fitnesse</em></a>) are designed for high-level acceptance testing with a formalised process,
+but I wanted something that would be appropriate at all levels of the
+<a href="http://martinfowler.com/bliki/TestPyramid.html">Testing Pyramid</a>.</p>
+<p>One of the great things about working at Huddle is Tuesday Time, a whole day of every week during which we get
+to work on anything we want. (Yes, we shamelessly cribbed this idea off Google.) So I set about building a test
+framework for Python, which I’m calling <a href="https://github.com/benjamin-hodgson/Contexts"><em>Contexts</em></a>.</p>
+<p>Contexts, like MSpec, subscribes to a ‘context-specification’ style of testing (hence the name!),
+wherein a test is spread out over a whole class, with descriptively-named methods for each step in the test.
+Contexts aims to provide a domain-specific language for testing, while still looking largely
+like a normal Python class, by treating methods specially based on their names.
+Here’s an example from Contexts’s own self-test suite.</p>
+<pre class="prettyprint lang-python">
+import contexts
+
+class WhenCatchingAnException:
+  def context(self):
+    self.thrown = ValueError("test exception")
+
+    def throwing_function(a, b, c, d=[]):
+      self.call_args = (a,b,c,d)
+      raise self.thrown
+    self.throwing_function = throwing_function
+
+  def because_we_call_catch(self):
+    self.caught = contexts.catch(self.throwing_function, 3, c='yes', b=None)
+
+  def it_should_call_the_function_with_the_supplied_arguments(self):
+    assert self.call_args == (3, None, 'yes', [])
+
+  def it_should_catch_and_return_the_exception(self):
+    assert self.caught is self.thrown
+</pre>
+<p>Hopefully you can see the parallels between Contexts and MSpec’s testing styles. It’s not just a clone, though -
+I’ve tried to avoid some of the places I think MSpec has made mistakes. For example, Contexts is a lot
+more flexible about the keywords it accepts in your method names. If you prefer ‘Given-When-Then’, go ahead!
+Contexts also has some modern features like parametrised tests (which MSpec doesn’t support)
+and reporting on the content of assertions made using Python’s <code>assert</code> statement.</p>
+<h2>How to get hold of Contexts</h2>
+<p>Contexts works with Python 3.3, and you can install it <a href="https://pypi.python.org/pypi/Contexts">via the Cheese Shop</a>
+using Pip.
+It’s open source, and the code is hosted <a href="https://github.com/benjamin-hodgson/Contexts">on Github</a>.
+I’m actively developing it - cool new features get released every few weeks -
+and you can see my to-do list <a href="https://trello.com/b/uPgp50AF/contexts-development">on Trello</a>.
+I’m also open to feature requests, bug reports and pull requests through the Github repo.</p>
+<p><strong>Stay tuned</strong> for another post in the next few weeks, about how we’re getting on with Contexts at Huddle
+and lessons I’ve learned from developing it in my Tuesday Time.</p>
+
+	</article>
+</div>
+</body>
+</html>

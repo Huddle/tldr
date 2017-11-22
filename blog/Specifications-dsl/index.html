@@ -1,0 +1,198 @@
+<!doctype html>
+<html>
+<div class="container">
+	<nav style="position: fixed; width: 200px; height: 100%;">
+	    <ul>
+<li><a href="../welcome">welcome</a></li>
+<li><a href="../css-testing">css testing</a></li>
+<li><a href="../code-club">code club</a></li>
+<li><a href="../DDD-East-Anglia-29th-June-2013">DDD East Anglia 29th June 2013</a></li>
+<li><a href="../Write-Your-Tests-In-Another-Language">Write Your Tests In Another Language</a></li>
+<li><a href="../Huddle-Hackathon-The-Hack-Trick">Huddle Hackathon The Hack Trick</a></li>
+<li><a href="../Hack-to-the-Future">Hack to the Future</a></li>
+<li><a href="../What-to-Hack">What to Hack</a></li>
+<li><a href="../All-about-security">All about security</a></li>
+<li><a href="../Composite-specifications">Composite specifications</a></li>
+<li><a href="../Specifications-dsl">Specifications dsl</a></li>
+<li><a href="../Specification-visitor">Specification visitor</a></li>
+<li><a href="../Meet-the-hackers">Meet the hackers</a></li>
+<li><a href="../Cardboard-houses">Cardboard houses</a></li>
+<li><a href="../SPA-feature-switch">SPA feature switch</a></li>
+<li><a href="../Auto-VRT">Auto VRT</a></li>
+</ul>
+	</nav>
+	<article style="padding-left: 220px">
+	    <hr>
+<h2>title: Specifications 3: The DSL Strikes Back
+date_created: 13th of March, 2015
+author_name: Benjamin Hodgson
+description: Building a Domain-Specific Language on top of composite specifications</h2>
+<h2>tl;dr</h2>
+<p>You should consider building a domain-specific
+language for certain parts of your code.
+You can end up with very clear code that can be read
+by non-programmers.</p>
+<h2>Designing a domain-specific language</h2>
+<p>In the <a href="http://tldr.huddle.com/blog/Composite-specifications/">last post</a>,
+we developed a few classes that allowed us to combine small,
+atomic specifications into more complex ones.
+The resulting code was very terse, but not particularly meaningful
+to a non-programmer. Our design is DRY (<strong>D</strong>on’t <strong>R</strong>epeat <strong>Y</strong>ourself)
+but not DAMP (<strong>D</strong>escriptive <strong>A</strong>nd <strong>M</strong>eaningful <strong>P</strong>hrases).</p>
+<p>Let’s remedy that and build a domain-specific language that resembles English.
+The end result is going to look like this:</p>
+<pre class="prettyprint lang-csharp">
+var renameDocumentRule =
+  (new UserHasReadPermission().And(new UserCreatedTheDocument())
+                              .AndNot(new DocumentIsLocked()))
+  .Or(new UserIsWorkspaceManager());
+</pre>
+<p>The DSL uses <em>method chaining</em> (sometimes known as a <em>fluent interface</em>)
+to drastically increase the readability of the code;
+while the example I started with in the <a href="http://tldr.huddle.com/blog/All-about-security/">first post</a>
+had <em>no obvious bugs</em>, this version has <em>obviously no bugs</em>. It’s a huge difference!</p>
+<p>We’re going to set ourselves the goal of building this DSL
+on top of the specifications library we developed in the last post,
+<em>without</em> changing any of the code we’ve already written.</p>
+<h2>Extension methods</h2>
+<div style="float: right; margin-left:5px; position: relative; top: 10px;">
+  <img src="img/2015-03-13-Specifications-dsl/scream.png"/>
+  <p class="caption">Me when I use Java</p>
+</div>
+<p>We want to write <code>And</code> and <code>Or</code> as <a href="http://en.wikipedia.org/wiki/Infix_notation"><em>infix</em></a>
+methods because that’s how English works, but <code>ISpecification</code>
+doesn’t contain methods of that name.
+In Java (the horror!), you’d need to convert the interface
+to an abstract base class and implement <code>And</code> and <code>Or</code> there.
+That would pollute our beautiful, crisp interface with
+a bunch of extra methods for combining specifications.
+<em>Combining</em> specifications has nothing to do with <em>being</em> a specification,
+so <code>And</code> and <code>Or</code> don’t belong in an abstract base class.
+What’s more, a class can only have one parent class (though it can implement many interfaces),
+so requiring specifications to inherit from an abstract base class is restrictive.</p>
+<p>Luckily, we can use C#'s
+<a href="https://msdn.microsoft.com/en-GB/library/bb383977.aspx">extension methods</a>
+(indicated by the <code>this</code> keyword) to surgically implant new methods
+onto our interface from the outside, without changing everything that implements it.</p>
+<pre class="prettyprint lang-csharp">
+static ISpecification&lt;T&gt; And&lt;T&gt;(
+    this ISpecification&lt;T&gt; left,
+    ISpecification&lt;T&gt; right)
+{
+  return new AndSpecification&lt;T&gt;(left, right);
+}
+static ISpecification&lt;T&gt; Or&lt;T&gt;(
+    this ISpecification&lt;T&gt; left,
+    ISpecification&lt;T&gt; right)
+{
+  return new OrSpecification&lt;T&gt;(left, right);
+}
+</pre>
+<p>These methods operate on an <code>ISpecification&lt;T&gt;</code>
+and return another <code>ISpecification&lt;T&gt;</code>.
+This means you can call <code>And</code> on the result of another call to <code>And</code>,
+chaining the methods indefinitely.
+Incidentally, this is how LINQ works - methods like <code>Select</code>
+and <code>Where</code> are defined as extension methods which take an <code>IEnumerable</code>
+and return a new <code>IEnumerable</code>, allowing you to chain them to one another.</p>
+<h2>Prefix functions</h2>
+<p>To make our DSL read like English, we want to implement a <a href="http://en.wikipedia.org/wiki/Polish_notation"><em>prefix</em></a>
+function called <code>Not</code>. But C#'s scoping rules present a sticking point</p>
+<ul>
+<li>if <code>Not</code> isn’t defined in the current class, we can’t use its name unqualified.</li>
+</ul>
+<p>We could bring <code>Not</code> into scope by defining it in a base class which
+all users of our DSL have to inherit from, but that would be
+stretching the meaning of inheritance, and has the annoying restriction
+that our users can’t inherit from any other classes.
+If we’re willing to give up on the idea of a prefix function,
+a more sanitary option is to define new extension methods which
+negate their argument:</p>
+<pre class="prettyprint lang-csharp">
+static ISpecification&lt;T&gt; AndNot&lt;T&gt;(
+    this ISpecification&lt;T&gt; left,
+    ISpecification&lt;T&gt; right)
+{
+  return new AndSpecification&lt;T&gt;(
+      left,
+      new NotSpecification&lt;T&gt;(right));
+}
+static ISpecification&lt;T&gt; OrNot&lt;T&gt;(
+    this ISpecification&lt;T&gt; left,
+    ISpecification&lt;T&gt; right)
+{
+  return new OrSpecification&lt;T&gt;(
+      left,
+      new NotSpecification&lt;T&gt;(right));
+}
+</pre>
+<p>But extension methods need an instance of <code>ISpecification</code> to chain from.
+What if the specification you want to negate isn’t part of a method chain?
+The best we can do is write a static method with the
+least disruptive name we can think of:</p>
+<pre class="prettyprint lang-csharp">
+public static class Not
+{
+  public ISpecification&lt;T&gt; This&lt;T&gt;(ISpecification&lt;T&gt; spec)
+  {
+    return new NotSpecification&lt;T&gt;(spec);
+  }
+}
+
+// example
+var documentIsNotLocked = Not.This(new DocumentIsLocked());
+</pre>
+<p>Users still have the option of defining a local function called <code>Not</code>
+as an alias for <code>Not.This</code>. C# 6’s upcoming &quot;using static&quot;
+feature would solve this problem entirely - I could define a class
+containing a static <code>Not</code> method and users of the DSL would be able to
+import the name directly.</p>
+<h2>When to use a DSL</h2>
+<p>We’ve defined a simple, readable domain-specific language for composing
+specifications using C#. When does it make sense to build a fluent DSL?</p>
+<ul>
+<li><strong>Use a DSL for self-contained sections of your business logic</strong>.
+Huddle’s specification DSL is limited in scope to
+permission-checking. It would be a mistake to use a fluent
+interface for <em>all</em> usages of Boolean logic in your program!</li>
+<li><strong>Express small domains</strong>.
+Domain-specific languages are not general-purpose.
+They’re at their most effective when there are only a few
+operations within your DSL. Don’t fall into the trap of trying to
+create a fully-fledged extensible programming language -
+leave that to the professionals.</li>
+<li><strong>Mathematical structures are good</strong>.
+It’s quite difficult to change the syntax or semantics of
+a domain-specific language because everyone would have to re-learn it.
+This makes them a good fit to model unchanging mathematical
+theories such as the Boolean logic we’ve been modelling in this example.
+An advantage of building on mathematics is that other people
+have already done the hard work - you’ll be able to draw from
+long-established definitions, theorems, and beautiful structures when
+designing and optimising your DSL.</li>
+<li><strong>Use a DSL for rapidly-changing parts of your system</strong>.
+This is the flip-side of the last point. If the business-oriented details
+of your code change with the winds, the simple and flexible framework
+provided by a DSL can help you immensely.</li>
+<li><strong>Use a DSL when business-people want to read the code</strong>.
+At Huddle, developers often get asked questions like
+&quot;Why can’t I delete this document?&quot; by other members
+of the team. I can open up the file containing our fluently-defined
+permissions rules and I don’t need to explain the code!
+This makes everyone feel good.</li>
+</ul>
+<p>In <a href="http://tldr.huddle.com/blog/Specification-visitor/">the next post</a>,
+we’ll enterprise-ify this code even more, to make it easier to add new
+ways to evaluate specifications.</p>
+<h2>In this series</h2>
+<ol>
+<li><a href="http://tldr.huddle.com/blog/All-about-security/">All about security</a></li>
+<li><a href="http://tldr.huddle.com/blog/Composite-specifications/">The power of Composite Specifications</a></li>
+<li><strong>Specifications 3: The DSL Strikes Back</strong></li>
+<li><a href="http://tldr.huddle.com/blog/Specification-visitor/">Knock knock. Who’s there? AbstractSpecificationNodeVisitorImpl</a></li>
+</ol>
+
+	</article>
+</div>
+</body>
+</html>

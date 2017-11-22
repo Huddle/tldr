@@ -1,0 +1,352 @@
+<!doctype html>
+<html>
+<div class="container">
+	<nav style="position: fixed; width: 200px; height: 100%;">
+	    <ul>
+<li><a href="../welcome">welcome</a></li>
+<li><a href="../css-testing">css testing</a></li>
+<li><a href="../code-club">code club</a></li>
+<li><a href="../DDD-East-Anglia-29th-June-2013">DDD East Anglia 29th June 2013</a></li>
+<li><a href="../Write-Your-Tests-In-Another-Language">Write Your Tests In Another Language</a></li>
+<li><a href="../Huddle-Hackathon-The-Hack-Trick">Huddle Hackathon The Hack Trick</a></li>
+<li><a href="../Hack-to-the-Future">Hack to the Future</a></li>
+<li><a href="../What-to-Hack">What to Hack</a></li>
+<li><a href="../All-about-security">All about security</a></li>
+<li><a href="../Composite-specifications">Composite specifications</a></li>
+<li><a href="../Specifications-dsl">Specifications dsl</a></li>
+<li><a href="../Specification-visitor">Specification visitor</a></li>
+<li><a href="../Meet-the-hackers">Meet the hackers</a></li>
+<li><a href="../Cardboard-houses">Cardboard houses</a></li>
+<li><a href="../SPA-feature-switch">SPA feature switch</a></li>
+<li><a href="../Auto-VRT">Auto VRT</a></li>
+</ul>
+	</nav>
+	<article style="padding-left: 220px">
+	    <hr>
+<h2>title: Knock knock. Who’s there? AbstractSpecificationNodeVisitorImpl
+date_created: 31st of March, 2015
+author_name: Benjamin Hodgson</h2>
+<h2>tl;dr</h2>
+<p>Our journey into Huddle’s security engine
+ends with the Visitor pattern, which makes it easy to add
+new operations to a closed set of data classes.</p>
+<h2>A problem looms</h2>
+<p>Let’s imagine that you’ve followed my advice to the letter
+(why on earth did you do that? I clearly have no idea what I’m talking about)
+and built yourself a library of composable specifications.
+Fast-forward twelve months and the library has been
+modified to support a variety of new requirements: the CTO wants all
+the security rules printed on a pile of paper every month so he
+can ignore them; the QAs need to check if two specs are equal;
+of course, we’ve got to support XML; oh, and it looks like someone thought
+checking the number of specifications in a composite was important.</p>
+<pre class="prettyprint lang-csharp">
+interface ISpecification&lt;T&gt;
+{
+  bool IsSatisfiedBy(T candidate);
+  string PrettyPrint();
+  bool Equals(ISpecification&lt;T&gt; other);
+  XmlNode Serialise();
+  long Size();
+}
+</pre>
+<p>Poor old <code>ISpecification</code> is having an identity crisis -
+most of these methods have nothing to do with specifying things.
+The more methods there are on an interface, the more likely it is that one
+of the implementations isn’t able to fill them all in - and then
+<code>NotImplementedException</code>s threaten to leap out at you from behind every corner.</p>
+<p>Object-oriented programming makes it easy to add new types of data
+(just add a new class with the right methods) but hard to add new behaviours to that data
+(you have to add a method to all the pre-existing classes).
+We want to undo that property: we’re unlikely to add new data
+(the <em>and</em>, <em>or</em> and <em>not</em> combinations are eternal and unchanging),
+but <code>ISpecification</code> already has a lot of behaviours
+and it seems likely that we’ll need to add more in the future.</p>
+<h2>Dumbing down the specifications</h2>
+<p>The trick is to separate the roles of <em>combining</em> specifications
+into a tree and <em>operating on</em> that tree of specifications.
+Let’s start by taking all the behaviour out of our classes,
+so all that we have left is a tree of Boolean expressions:</p>
+<pre class="prettyprint lang-csharp">
+interface ISpecification&lt;T&gt; { }
+class AndSpecification&lt;T&gt; : ISpecification&lt;T&gt;
+{
+  public ISpecification&lt;T&gt; Left { get; private set; }
+  public ISpecification&lt;T&gt; Right { get; private set; }
+  public AndSpecification(
+      ISpecification&lt;T&gt; left,
+      ISpecification&lt;T&gt; right)
+  {
+    Left = left;
+    Right = right;
+  }
+}
+class OrSpecification&lt;T&gt; : ISpecification&lt;T&gt;
+{
+  public ISpecification&lt;T&gt; Left { get; private set; }
+  public ISpecification&lt;T&gt; Right { get; private set; }
+  public OrSpecification(
+      ISpecification&lt;T&gt; left,
+      ISpecification&lt;T&gt; right)
+  {
+    Left = left;
+    Right = right;
+  }
+}
+class NotSpecification&lt;T&gt; : ISpecification&lt;T&gt;
+{
+  public ISpecification&lt;T&gt; Spec { get; private set; }
+  public NotSpecification(ISpecification&lt;T&gt; spec)
+  {
+    Spec = spec;
+  }
+}
+abstract class AtomicSpecification&lt;T&gt; : ISpecification&lt;T&gt;
+{
+  abstract bool IsSatisfiedBy(T candidate);
+}
+</pre>
+<h2>Extracting behaviours</h2>
+<p>Now, where to put the behaviours?
+We can write classes that traverse the tree of
+specifications by recursively calling themselves.
+Each type of specification defined its own variation of each method,
+so to recover that structure we’ll need to overload the functions.</p>
+<pre class="prettyprint lang-csharp">
+class IsSatisfiedTester&lt;T&gt;
+{
+  private T candidate;
+  public IsSatisfiedTester(T candidate)
+  {
+    this.candidate = candidate;
+  }
+  public bool IsSatisfied(AtomicSpecification&lt;T&gt; spec)
+  {
+    return spec.IsSatisfiedBy(this.candidate);
+  }
+  public bool IsSatisfied(AndSpecification&lt;T&gt; spec)
+  {
+    return IsSatisfied(spec.Left)
+        &amp;&amp; IsSatisfied(spec.Right);
+  }
+  public bool IsSatisfied(OrSpecification&lt;T&gt; spec)
+  {
+    return IsSatisfied(spec.Left)
+        || IsSatisfied(spec.Right);
+  }
+  public bool IsSatisfied(NotSpecification&lt;T&gt; spec)
+  {
+    return !IsSatisfied(spec.Spec);
+  }
+}
+class PrettyPrinter&lt;T&gt;
+{
+  public string PrettyPrint(AtomicSpecification&lt;T&gt; spec)
+  {
+    return spec.GetType().Name;
+  }
+  public string PrettyPrint(AndSpecification&lt;T&gt; spec)
+  {
+    return string.Format("({0} AND {1})",
+        PrettyPrint(spec.Left), PrettyPrint(spec.Right));
+  }
+  public string PrettyPrint(OrSpecification&lt;T&gt; spec)
+  {
+    return string.Format("({0} OR {1})",
+        PrettyPrint(spec.Left), PrettyPrint(spec.Right));
+  }
+  public string PrettyPrint(NotSpecification&lt;T&gt; spec)
+  {
+    return string.Format("(NOT {0})", PrettyPrint(spec.Spec));
+  }
+}
+</pre>
+<p>Great! It’s now super easy to add a new way to use the tree of specifications -
+just add another one of these recursive traversal classes.
+This is called the <em>Visitor pattern</em>.
+One minor problem: it fails to compile. Overloads of a function are resolved at compile
+time - so if all we have is an <code>ISpecification&lt;T&gt;</code>, there’s no way of knowing which
+version of <code>IsSatisfied</code> should be used in the recursive calls. I’m afraid we’re stuck.</p>
+<h2>A feat of escapology</h2>
+<p>Ha! Fooled you! We’re not stuck.
+The solution is to pick the right overload dynamically,
+using a virtual method (<code>Accept</code>) on the specifications themselves.
+We also need to introduce an interface for the visitors,
+so that we can add new visitors without affecting the <code>Accept</code> method.</p>
+<pre class="prettyprint lang-csharp">
+interface ISpecification&lt;T&gt;
+{
+  TReturn Accept&lt;TReturn&gt;(
+      ISpecificationVisitor&lt;T, TReturn&gt; visitor);
+}
+class AndSpecification&lt;T&gt; : ISpecification&lt;T&gt;
+{
+  // ...
+  TReturn Accept&lt;TReturn&gt;(
+      ISpecificationVisitor&lt;T, TReturn&gt; visitor)
+  {
+    // the compiler knows the concrete type of 'this',
+    // so the correct overload of Visit will be selected
+    return visitor.Visit(this);
+  }
+}
+// identical Accept methods in all the other types of specification
+</pre>
+<p>Here are the visitors. Note that <code>ISpecificationVisitor</code>
+has <em>two</em> generic type parameters - one for the type of
+specification the visitor operates on, and another for
+the type of object the visitor returns.</p>
+<pre class="prettyprint lang-csharp">
+interface ISpecificationVisitor&lt;T, out TReturn&gt;
+{
+  TReturn Visit(AtomicSpecification&lt;T&gt; spec);
+  TReturn Visit(AndSpecification&lt;T&gt; spec);
+  TReturn Visit(OrSpecification&lt;T&gt; spec);
+  TReturn Visit(NotSpecification&lt;T&gt; spec);
+}
+
+class IsSatisfiedTester&lt;T&gt; : ISpecificationVisitor&lt;T, bool&gt;
+{
+  private T candidate;
+  public IsSatisfiedTester(T candidate)
+  {
+    this.candidate = candidate;
+  }
+  public bool Visit(AtomicSpecification&lt;T&gt; spec)
+  {
+    return spec.IsSatisfiedBy(this.candidate);
+  }
+  public bool Visit(AndSpecification&lt;T&gt; spec)
+  {
+    return spec.Left.Accept(this)
+        &amp;&amp; spec.Right.Accept(this);
+  }
+  public bool Visit(OrSpecification&lt;T&gt; spec)
+  {
+    return spec.Left.Accept(this)
+        || spec.Right.Accept(this);
+  }
+  public bool Visit(NotSpecification&lt;T&gt; spec)
+  {
+    return !spec.Spec.Accept(this);
+  }
+}
+class PrettyPrinter&lt;T&gt; : ISpecificationVisitor&lt;T, string&gt;
+{
+  public string Visit(AtomicSpecification&lt;T&gt; spec)
+  {
+    return spec.GetType().Name;
+  }
+  public string Visit(AndSpecification&lt;T&gt; spec)
+  {
+    return string.Format("({0} AND {1})",
+        spec.Left.Accept(this), spec.Right.Accept(this));
+  }
+  public string Visit(OrSpecification&lt;T&gt; spec)
+  {
+    return string.Format("({0} OR {1})",
+        spec.Left.Accept(this), spec.Right.Accept(this));
+  }
+  public string Visit(NotSpecification&lt;T&gt; spec)
+  {
+    return string.Format("(NOT {0})", spec.Spec.Accept(this));
+  }
+}
+</pre>
+<p>In our first attempt, the visitors recursively called
+themselves to traverse the specification tree.
+Now, that recursive call is implemented using the
+specification’s <code>Accept</code> method.</p>
+<h2>Recovering the original interface</h2>
+<p>Since I think <code>visitor.Visit(spec)</code> reads better than <code>spec.Accept(visitor)</code>,
+I’m going to provide an extension method that converts between the two forms:</p>
+<pre class="prettyprint lang-csharp">
+static TReturn Visit&lt;TCandidate, TReturn&gt;(
+    this ISpecificationVisitor&lt;TCandidate, TReturn&gt; visitor,
+    ISpecification&lt;TCandidate&gt; spec)
+{
+  return spec.Accept(visitor);
+}
+</pre>
+<p>Finally, we can write more extension methods to get back all the
+methods that were previously declared in <code>ISpecification</code>:</p>
+<pre class="prettyprint lang-csharp">
+static bool IsSatisfiedBy&lt;T&gt;(this ISpecification&lt;T&gt; spec, T candidate)
+{
+  var visitor = new IsSatisfiedTester&lt;T&gt;(candidate);
+  return visitor.Visit(spec);
+}
+static string PrettyPrint&lt;T&gt;(this ISpecification&lt;T&gt; spec)
+{
+  var visitor = new PrettyPrinter&lt;T&gt;();
+  return visitor.Visit(spec);
+}
+</pre>
+<p>We can continue replacing all the methods on <code>ISpecification</code>
+with extension methods which encapsulate a visitor,
+so we don’t have to change any client code.</p>
+<h2>Code review</h2>
+<p>I mentioned earlier that object-oriented programming makes
+it easy to add new types of data but hard to add new behaviours.
+This is because OO languages encourage you to put data and behaviour together
+in a class; we had to put a lot of machinery in place to make C# allow us to
+separate them.
+This is the only refactoring I’ve shown you which hasn’t
+made the code markedly simpler. In particular, the technique of picking
+the right overload of <code>Visit</code> by overriding <code>Accept</code> is arcane and bulky:
+we’ve paid the price of going against The Object-Oriented Way.</p>
+<p>On the other hand, we’re now free to define as many ways to traverse a
+specification tree as we like, without even recompiling any pre-existing code.
+So the Visitor pattern is useful when the benefit of being able to add
+new behaviours outweighs the cost of the complicated code.
+This is only true when there are lots of behaviours associated with your data.</p>
+<p>Functional programming, unlike OO, encourages you to
+separate your program’s data from its behaviour.
+This way, it’s easy to add new types of behaviour
+(just add another function) but hard to add new types of data
+(you have to change all the existing functions).
+<a href="http://stackoverflow.com/a/2502787/1523776"><em>Pattern matching</em></a>
+is a feature of many functional languages which makes the
+Visitor pattern so simple it’s hardly visible.
+Here’s a translation of this post’s example into
+<a href="http://docs.scala-lang.org/tutorials/tour/pattern-matching.html">Scala</a>:</p>
+<pre class="prettyprint lang-csharp">
+def isSatisfied[T](spec : Specification[T], x : T) : Boolean =
+  spec match {
+    case AndSpecification(l, r) => isSatisfied(l, x)
+                                &amp;&amp; isSatisfied(r, x)
+    case OrSpecification(l, r) => isSatisfied(l, x)
+                               || isSatisfied(r, x)
+    case NotSpecification(s) => !isSatisfied(s, x)
+    case s : AtomicSpecification[T] => s.isSatisfiedBy(x)
+}
+</pre>
+<p><em>That’s the whole thing</em> - it’s a single function!
+All our hard work - the interface containing four overloads,
+the confusing <code>Accept</code> method, the pages of code -
+was just to get around C#'s lack of support for pattern matching.</p>
+<p>This series of blog posts has been all about the power of
+repeatedly applying abstractions to your code-base.
+Often, one improvement will open doors to another:
+for example, putting security rules behind the <code>ISpecification</code>
+interface gave us room to break our specifications down and
+recombine them flexibly. The techniques I’ve demonstrated can
+be applied any time you can recognise a number of classes
+fulfilling the same role and abstract away the differences.</p>
+<p>For further reading, see Eric Evans and Martin Fowler’s
+<a href="http://martinfowler.com/apsupp/spec.pdf">article</a>
+introducing the Specification pattern, and Robert C. Martin’s
+<a href="http://butunclebob.com/ArticleS.UncleBob.IuseVisitor">succinct explanation</a>
+of Visitor.</p>
+<h2>In this series</h2>
+<ol>
+<li><a href="http://tldr.huddle.com/blog/All-about-security/">All about security</a></li>
+<li><a href="http://tldr.huddle.com/blog/Composite-specifications/">The power of Composite Specifications</a></li>
+<li><a href="http://tldr.huddle.com/blog/Specifications-dsl/">Specifications 3: The DSL Strikes Back</a></li>
+<li><strong>Knock knock. Who’s there? AbstractSpecificationNodeVisitorImpl</strong></li>
+</ol>
+
+	</article>
+</div>
+</body>
+</html>

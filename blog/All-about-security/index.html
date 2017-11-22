@@ -1,0 +1,173 @@
+<!doctype html>
+<html>
+<div class="container">
+	<nav style="position: fixed; width: 200px; height: 100%;">
+	    <ul>
+<li><a href="../welcome">welcome</a></li>
+<li><a href="../css-testing">css testing</a></li>
+<li><a href="../code-club">code club</a></li>
+<li><a href="../DDD-East-Anglia-29th-June-2013">DDD East Anglia 29th June 2013</a></li>
+<li><a href="../Write-Your-Tests-In-Another-Language">Write Your Tests In Another Language</a></li>
+<li><a href="../Huddle-Hackathon-The-Hack-Trick">Huddle Hackathon The Hack Trick</a></li>
+<li><a href="../Hack-to-the-Future">Hack to the Future</a></li>
+<li><a href="../What-to-Hack">What to Hack</a></li>
+<li><a href="../All-about-security">All about security</a></li>
+<li><a href="../Composite-specifications">Composite specifications</a></li>
+<li><a href="../Specifications-dsl">Specifications dsl</a></li>
+<li><a href="../Specification-visitor">Specification visitor</a></li>
+<li><a href="../Meet-the-hackers">Meet the hackers</a></li>
+<li><a href="../Cardboard-houses">Cardboard houses</a></li>
+<li><a href="../SPA-feature-switch">SPA feature switch</a></li>
+<li><a href="../Auto-VRT">Auto VRT</a></li>
+</ul>
+	</nav>
+	<article style="padding-left: 220px">
+	    <hr>
+<h2>title: All About Security
+date_created: 2nd of February, 2015
+author_name: Benjamin Hodgson
+description: An explanation of how Huddle’s security engine works.</h2>
+<h2>tl;dr</h2>
+<p>At Huddle, we use the Specification pattern to implement the
+security our customers rely upon. The next few blog posts are going to be
+an in-depth look at how our security engine works.</p>
+<h2>Security rules at Huddle</h2>
+<p><a href="http://www.huddle.com/product-overview/secure-collaboration/">We take security seriously</a>.
+A big part of our product is permission control -
+allowing our customers to make sure people can’t see content
+they’re not supposed to see.</p>
+<p>Often, the rules determining permissions can be satisfied
+in more than one way. For example, in order to view a document
+that’s been uploaded to Huddle, your team must have been given
+permission to do so by your boss - or you must be the boss yourself.
+‘Bosses’ in Huddle are known as <em>workspace managers</em>.</p>
+<h2>A procedural approach</h2>
+<p>Here’s a short example of how you might naïvely implement the
+security check I described above.</p>
+<pre class="prettyprint lang-csharp">
+Document ReadDocument(int documentId, User currentUser)
+{
+  var document = this.documentRepository.Get(documentId);
+
+  var folder = document.ParentFolder;
+  var userIsManager = currentUser.IsManager;
+  var userHasReadPermission = folder.TeamsWithReadPermission
+        .Any(team => team.ContainsUser(currentUser));
+  if (!(userIsManager || userHasReadPermission))
+  {
+    throw new PermissionException();
+  }
+
+  return document;
+}
+</pre>
+<p>This code does not adhere to the single responsibility principle - the
+logic to check permissions is tangled up with the logic to read the document.
+Huddle’s security requirements involve lots of complex checks,
+and defining the rules inline like this quickly becomes
+error-prone and hard to understand. Let’s refactor this procedural
+code into a more scalable, object-oriented solution.</p>
+<h2>Extracting the rule definition</h2>
+<p>One way of separating the definition of a rule from its usage is
+to extract it into a new class. We can apply a uniform interface
+to our ‘rule’ classes to make them easier to use.</p>
+<pre class="prettyprint lang-csharp">
+interface ISecurityRule
+{
+  bool IsSatisfiedBy(SecurityContext candidate);
+}
+</pre>
+<p>This is called the <em>Specification</em> pattern.
+A Specification (I’ve called it a ‘security rule’ here) is an
+object with an <code>IsSatisfiedBy</code> method defining a Boolean rule.
+When we pass an object to <code>IsSatisfiedBy</code>, the Specification tests
+the object to see if it satisfies the criteria defined
+by the Specification.</p>
+<p>The <code>SecurityContext</code> here represents “the facts of the matter” -
+it simply wraps up the information needed by security rules:</p>
+<pre class="prettyprint lang-csharp">
+class SecurityContext
+{
+  public Document Document { get; set; }
+  public User CurrentUser { get; set; }
+}
+</pre>
+<p>With this interface in place, we can encapsulate the code
+to check permissions into a class:</p>
+<pre class="prettyprint lang-csharp">
+class ReadDocumentRule : ISecurityRule
+{
+  public bool IsSatisfiedBy(SecurityContext context)
+  {
+    var folder = context.Document.ParentFolder;
+
+    var userIsManager = context.CurrentUser.IsManager;
+    var userHasReadPermission = folder.TeamsWithReadPermission
+          .Any(team => team.ContainsUser(currentUser));
+
+    return userIsManager || userHasReadPermission;
+  }
+}
+
+// another example: you may delete a document if you created it,
+// or if you're a workspace manager
+class DeleteDocumentRule : ISecurityRule
+{
+  public bool IsSatisfiedBy(SecurityContext context)
+  {
+    var userIsManager = context.CurrentUser.IsManager;
+    var userCreatedTheDocument = context.CurrentUser == context.Document.Creator;
+
+    return userIsManager || userCreatedTheDocument;
+  }
+}
+</pre>
+<h2>Using specifications</h2>
+<p>Here’s a general, reusable method to test security rules:</p>
+<pre class="prettyprint lang-csharp">
+void CheckPermissions(ISecurityRule rule, SecurityContext context)
+{
+  if (!rule.IsSatisfiedBy(context))
+  {
+    throw new PermissionException();
+  }
+}
+</pre>
+<p>Finally, let’s rewrite the <code>ReadDocument</code> method from earlier.
+This version is shorter and cleaner, because it’s no longer concerned
+with the specifics of how to check permissions:</p>
+<pre class="prettyprint lang-csharp">
+Document ReadDocument(int documentId, User currentUser)
+{
+  var document = this.documentRepository.Get(documentId);
+
+  CheckPermissions(
+    new ReadDocumentRule(),
+    new SecurityContext
+    {
+      Document = document,
+      CurrentUser = currentUser
+    });
+
+  return document;
+}
+</pre>
+<p>The main advantage this pattern gives us is that it enables
+us to keep security rules separate from the code that uses them.
+The specification classes are small and easy to understand;
+this means fewer bugs, safer users and happier programmers.</p>
+<p>In the <a href="http://tldr.huddle.com/blog/Composite-specifications/">next post</a>,
+I’ll demonstrate a more sophisticated and powerful version
+of this design, which makes handling complex rules much easier.</p>
+<h2>In this series</h2>
+<ol>
+<li><strong>All about security</strong></li>
+<li><a href="http://tldr.huddle.com/blog/Composite-specifications/">The power of Composite Specifications</a></li>
+<li><a href="http://tldr.huddle.com/blog/Specifications-dsl/">Specifications 3: The DSL Strikes Back</a></li>
+<li><a href="http://tldr.huddle.com/blog/Specification-visitor/">Knock knock. Who’s there? AbstractSpecificationNodeVisitorImpl</a></li>
+</ol>
+
+	</article>
+</div>
+</body>
+</html>
